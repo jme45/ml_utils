@@ -39,8 +39,8 @@ class TensorBoardLogger:
             assert additional_metrics is not None, "additional_metrics must not be None"
 
         if tensorboard_logging:
-            timestamp = datetime.strftime("%Y-%m-%d")
-            log_dir = root_dir / timestamp
+            timestamp = datetime.now().strftime("%Y-%m-%d")
+            log_dir = root_dir / experiment_name / timestamp
             self.writer = SummaryWriter(log_dir=str(log_dir))
         else:
             self.writer = None
@@ -50,26 +50,13 @@ class TensorBoardLogger:
 
         # only perform logging if we actually want tensorboard logging
         if self.tensorboard_logging:
-            # log to tensorboard.
-            self.writer.add_scalars(
-                main_tag="Loss",
-                tag_scalar_dict={
-                    "train_loss": results_train["loss"],
-                    "test_loss": results_test["loss"],
-                },
-                global_step=epoch,
-            )
-            for metric in self.additional_metrics:
-                self.writer.add_scalars(
-                    main_tag=metric,
-                    tag_scalar_dict={
-                        f"{train_test}_{metric}": res[metric]
-                        for train_test, res in zip(
-                            ["train", "test"], [results_train, results_test]
-                        )
-                    },
-                    global_step=epoch,
-                )
+            for metric in ['loss'] + list(self.additional_metrics):
+                for train_test, res in zip(['train', 'test'], [results_train, results_test]):
+                    self.writer.add_scalar(f'{metric}/{train_test}', res[metric], epoch)
+
+    def close(self):
+        if self.tensorboard_logging:
+            self.writer.close()
 
 
 class ClassificationTrainer:
@@ -83,10 +70,10 @@ class ClassificationTrainer:
         loss_fn: nn.Module,
         n_epochs: int,
         device: str | torch.device,
-        save_lowest_test_loss_model: bool,
-        save_final_model: bool,
         output_path: str | Path,
         num_classes: int,
+        save_lowest_test_loss_model: bool = False,
+        save_final_model: bool = False,
         tensorboard_logger: Optional[TensorBoardLogger] = None,
         disable_within_epoch_progress_bar: bool = True,
         disable_epoch_progress_bar: bool = False,
@@ -147,7 +134,16 @@ class ClassificationTrainer:
         if self.tensorboard_logger is None:
             self.tensorboard_logger = TensorBoardLogger(False, None, None, None)
 
-    def _train_step(self, epoch) -> None:
+        # Initialise lowest test loss. It's None initially
+        self.lowest_test_loss = None
+        self.lowest_loss_state_dict = None
+
+        # Initialise output files
+        self.output_path.mkdir(parents=True, exist_ok=True)
+        self.lowest_loss_model_path = self.output_path / 'lowest_loss_model.pt'
+        self.final_model_path = self.output_path / 'final_model.pt'
+
+    def _train_step(self, epoch) -> dict[str, float]:
         """
         Trains model through one epoch.
         :return:
@@ -286,7 +282,11 @@ class ClassificationTrainer:
 
         return ret_metrics
 
-    def train(self):
+    def train(self)-> dict[str, float]:
+        '''
+        Train the model.
+        :return: dict with training success.
+        '''
         generator = tqdm(
             range(self.n_epochs),
             desc=f"Training loop",
@@ -313,6 +313,24 @@ class ClassificationTrainer:
                 for metric in res.keys():
                     all_results[f"{train_test}_{metric}"].append(res[metric])
 
+            # Check for lowest test loss. If lower than previous one, save state dict
+            if self.lowest_test_loss is None or (results_test['loss'] < self.lowest_test_loss):
+                self.lowest_loss_state_dict = self.model.state_dict()
+
             self.tensorboard_logger.log(results_train, results_test, epoch)
+
+        # Save state dict of models we want to save
+        if self.save_lowest_test_loss_model:
+            torch.save(obj=self.lowest_loss_state_dict, f=self.lowest_loss_model_path)
+        if self.save_final_model:
+            torch.save(obj = self.model.state_dict(), f=self.final_model_path)
+
+        # need to close the tensorboard writer.
+        self.tensorboard_logger.close()
+
+
+
+
+
 
         return all_results
