@@ -1,26 +1,31 @@
-import torch
-from torch import nn
-from torch.utils.data import DataLoader
-from torch.optim.optimizer import Optimizer
-from pathlib import Path
-from tqdm.auto import tqdm
-import torchmetrics
-from timeit import default_timer as timer
 from datetime import datetime
+from pathlib import Path
+from timeit import default_timer as timer
+from typing import Optional, Tuple, Any
+
+import torch
+import torchmetrics
+from torch import nn
+from torch.optim.optimizer import Optimizer
+from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
-from typing import Optional, Tuple
+from tqdm.auto import tqdm
 
 # define additional metrics we want on top of loss. Used by TensorBoardLogger and ClassificationTrainer
 additional_metrics = ("Accuracy", "F1Score")
 
 
 class TensorBoardLogger:
+    """
+    Instance of SummaryWriter which can also be set to None.
+    """
+
     def __init__(
         self,
         tensorboard_logging: bool,
         experiment_name: Optional[str],
         root_dir: Optional[Path] = Path("runs/"),
-        additional_metrics: Optional[Tuple[str]]  = additional_metrics,
+        additional_metrics: Optional[Tuple[str]] = additional_metrics,
     ):
         """
         Create an instance of Tensorboard SummaryWriter if tensorboard_logging is True
@@ -45,16 +50,24 @@ class TensorBoardLogger:
         else:
             self.writer = None
 
-    def log(self, results_train, results_test, epoch):
-        """Log results from train and test to tensorboard"""
+    def log(
+        self,
+        results_train: dict[str, float],
+        results_test: dict[str, float],
+        epoch: int,
+    )->None:
+        """Log results from train and test to tensorboard, if want logging"""
 
         # only perform logging if we actually want tensorboard logging
         if self.tensorboard_logging:
-            for metric in ['loss'] + list(self.additional_metrics):
-                for train_test, res in zip(['train', 'test'], [results_train, results_test]):
-                    self.writer.add_scalar(f'{metric}/{train_test}', res[metric], epoch)
+            for metric in ["loss"] + list(self.additional_metrics):
+                for train_test, res in zip(
+                    ["train", "test"], [results_train, results_test]
+                ):
+                    self.writer.add_scalar(f"{metric}/{train_test}", res[metric], epoch)
 
-    def close(self):
+    def close(self)->None:
+        '''Close the writer, if we wanted logging.'''
         if self.tensorboard_logging:
             self.writer.close()
 
@@ -115,14 +128,15 @@ class ClassificationTrainer:
         self.train_dataloader = train_dataloader
         self.model = model
 
-        # deal with optimizer, depending on whether it's a string or the class
+        # Deal with optimizer, depending on whether it's a string or the class.
         if isinstance(optimiser_class, str):
             self.optimiser = getattr(torch.optim, optimiser_class)
         self.optimiser = self.optimiser(
             params=model.parameters(), **self.optimiser_kwargs
         )
 
-        # Set up Accuracy and F1 metric. Could implement more here. Compute on CPU, as GPU won't be much faster
+        # Set up Accuracy and F1 metric. Could implement more here. Compute on
+        # CPU, as GPU won't be much faster.
         self.metrics = {
             metric: getattr(torchmetrics, metric)(
                 task="multiclass", num_classes=num_classes
@@ -130,27 +144,28 @@ class ClassificationTrainer:
             for metric in additional_metrics
         }
 
-        # If tensorboard logger not provided, initialise with no logger
+        # If tensorboard logger not provided, initialise with no logger.
         if self.tensorboard_logger is None:
             self.tensorboard_logger = TensorBoardLogger(False, None, None, None)
 
-        # Initialise lowest test loss. It's None initially
+        # Initialise lowest test loss and corresponding state dict. It's None initially.
         self.lowest_test_loss = None
         self.lowest_loss_state_dict = None
 
-        # Initialise output files
+        # Initialise output files.
         self.output_path.mkdir(parents=True, exist_ok=True)
-        self.lowest_loss_model_path = self.output_path / 'lowest_loss_model.pt'
-        self.final_model_path = self.output_path / 'final_model.pt'
+        self.lowest_loss_model_path = self.output_path / "lowest_loss_model.pt"
+        self.final_model_path = self.output_path / "final_model.pt"
 
-    def _train_step(self, epoch) -> dict[str, float]:
+    def _train_step(self, epoch: int) -> dict[str, float]:
         """
         Trains model through one epoch.
-        :return:
+        :parameter: epoch: epoch which is being trained
+        :return: dict of losses and performance metrics.
         """
 
         # Make a progress bar for progress within the epoch.
-        generator = tqdm(
+        progress_bar_generator = tqdm(
             enumerate(self.train_dataloader),
             desc=f"Training epoch {epoch}",
             total=len(self.train_dataloader),
@@ -167,10 +182,11 @@ class ClassificationTrainer:
         # set to training mode
         self.model.train()
 
+        # Save start time, so can compute how long computation on batch took.
         start_time = timer()
 
-        for batch, (X, y) in generator:
-            # Save true label
+        for batch, (X, y) in progress_bar_generator:
+            # Save true label to cpu.
             y_true_all.append(y.cpu())
 
             # Send data to device.
@@ -179,29 +195,29 @@ class ClassificationTrainer:
             # forward pass
             y_logits = self.model(X)
 
-            # compute loss
+            # Compute loss.
             loss = self.loss_fn(y_logits, y)
 
-            # zero the gradients
+            # zero the gradients.
             self.optimiser.zero_grad()
 
             # backprop
             loss.backward()
 
-            # step the optimiser
+            # Step the optimiser.
             self.optimiser.step()
 
-            # Get the label predictions
+            # Get the label predictions and append to list of all predictions.
             y_preds = torch.argmax(y_logits, dim=-1)
-
             y_preds_all.append(y_preds.cpu())
 
-            # cumulate number of samples
+            # Cumulate number of samples.
             n_samples += X.shape[0]
 
-            # cumulate total loss
+            # Cumulate total loss.
             total_loss += loss.item()
 
+        # Save end time.
         end_time = timer()
 
         # Turn y_preds_all and y_true_all into single tensor.
@@ -210,6 +226,7 @@ class ClassificationTrainer:
 
         # Make a dictionary with metrics for returning.
         ret_metrics = {}
+        # Save average loss per sample.
         ret_metrics["loss"] = total_loss / n_samples
         for metric, fn in self.metrics.items():
             ret_metrics[metric] = fn(y_preds_all, y_true_all)
@@ -221,7 +238,7 @@ class ClassificationTrainer:
 
     def _test_step(self, epoch):
         # Make a progress bar for progress within the epoch.
-        generator = tqdm(
+        progress_bar_generator = tqdm(
             enumerate(self.test_dataloader),
             desc=f"Testing epoch {epoch}",
             total=len(self.test_dataloader),
@@ -231,16 +248,16 @@ class ClassificationTrainer:
         # Save total number of elements across all batches.
         n_samples = 0
         total_loss = 0.0
-        # save y_preds across all batches.
+        # Save y_preds across all batches.
         y_preds_all = []
         y_true_all = []
 
         start_time = timer()
 
-        # Put model in evaluation mode
+        # Put model in evaluation mode.
         self.model.eval()
 
-        for batch, (X, y) in generator:
+        for batch, (X, y) in progress_bar_generator:
             # Save true label
             y_true_all.append(y.cpu())
 
@@ -282,12 +299,12 @@ class ClassificationTrainer:
 
         return ret_metrics
 
-    def train(self)-> dict[str, float]:
-        '''
+    def train(self) -> dict[str, list[float]]:
+        """
         Train the model.
-        :return: dict with training success.
-        '''
-        generator = tqdm(
+        :return: dict with training metrics.
+        """
+        epoch_generator = tqdm(
             range(self.n_epochs),
             desc=f"Training loop",
             total=self.n_epochs,
@@ -302,7 +319,7 @@ class ClassificationTrainer:
             all_results[f"{train_test}_epoch_time"] = []
 
         # Iterate through epochs
-        for epoch in generator:
+        for epoch in epoch_generator:
             results_train = self._train_step(epoch)
             results_test = self._test_step(epoch)
 
@@ -313,24 +330,21 @@ class ClassificationTrainer:
                 for metric in res.keys():
                     all_results[f"{train_test}_{metric}"].append(res[metric])
 
-            # Check for lowest test loss. If lower than previous one, save state dict
-            if self.lowest_test_loss is None or (results_test['loss'] < self.lowest_test_loss):
+            # Check for lowest test loss. If lower than previous one, save state dict.
+            if self.lowest_test_loss is None or (
+                results_test["loss"] < self.lowest_test_loss
+            ):
                 self.lowest_loss_state_dict = self.model.state_dict()
 
             self.tensorboard_logger.log(results_train, results_test, epoch)
 
-        # Save state dict of models we want to save
+        # Save state dict of models we want to save.
         if self.save_lowest_test_loss_model:
             torch.save(obj=self.lowest_loss_state_dict, f=self.lowest_loss_model_path)
         if self.save_final_model:
-            torch.save(obj = self.model.state_dict(), f=self.final_model_path)
+            torch.save(obj=self.model.state_dict(), f=self.final_model_path)
 
         # need to close the tensorboard writer.
         self.tensorboard_logger.close()
-
-
-
-
-
 
         return all_results
