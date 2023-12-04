@@ -1,7 +1,7 @@
 from datetime import datetime
 from pathlib import Path
 from timeit import default_timer as timer
-from typing import Optional, Tuple, Any
+from typing import Optional, Tuple
 
 import torch
 import torchmetrics
@@ -23,7 +23,7 @@ class TensorBoardLogger:
     def __init__(
         self,
         tensorboard_logging: bool,
-        experiment_name: Optional[str],
+        experiment_name: Optional[str] = None,
         root_dir: Optional[Path] = Path("runs/"),
         additional_metrics: Optional[Tuple[str]] = additional_metrics,
     ):
@@ -37,15 +37,15 @@ class TensorBoardLogger:
         self.tensorboard_logging = tensorboard_logging
         self.experiment_name = experiment_name
 
+
         if tensorboard_logging:
             # Check that if we want logging, the parameters are set
             assert self.experiment_name is not None, "experiment_name must not be None"
             assert root_dir is not None, "root_dir must not be None"
             assert additional_metrics is not None, "additional_metrics must not be None"
 
-        if tensorboard_logging:
             timestamp = datetime.now().strftime("%Y-%m-%d")
-            log_dir = root_dir / experiment_name / timestamp
+            log_dir = Path(root_dir) / experiment_name / timestamp
             self.writer = SummaryWriter(log_dir=str(log_dir))
         else:
             self.writer = None
@@ -229,7 +229,7 @@ class ClassificationTrainer:
         # Save average loss per sample.
         ret_metrics["loss"] = total_loss / n_samples
         for metric, fn in self.metrics.items():
-            ret_metrics[metric] = fn(y_preds_all, y_true_all)
+            ret_metrics[metric] = fn(y_preds_all, y_true_all).item()
 
         # Save training time.
         ret_metrics["epoch_time"] = end_time - start_time
@@ -292,7 +292,7 @@ class ClassificationTrainer:
         ret_metrics = {}
         ret_metrics["loss"] = total_loss / n_samples
         for metric, fn in self.metrics.items():
-            ret_metrics[metric] = fn(y_preds_all, y_true_all)
+            ret_metrics[metric] = fn(y_preds_all, y_true_all).item()
 
         # Save training time.
         ret_metrics["epoch_time"] = end_time - start_time
