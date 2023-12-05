@@ -72,7 +72,7 @@ def test_trainer(tmp_path):
             [1.6253527, 1.2333362, -0.18318552],
         ]
     )
-    assert np.allclose(expected_X, X.numpy())
+    assert np.allclose(expected_X, X.numpy()), "Random input data doesn't match."
 
     # Get expected values as numpy.
     expected = np.array(
@@ -82,4 +82,4 @@ def test_trainer(tmp_path):
         ]
     )
 
-    assert np.allclose(res_df.values, expected)
+    assert np.allclose(res_df.values, expected), "Output doesn't match."
