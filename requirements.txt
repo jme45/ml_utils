@@ -2,3 +2,5 @@ tqdm
 torch
 torchmetrics
 tensorboard
+pytest
+pandas
