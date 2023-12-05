@@ -1,5 +1,5 @@
 *.ipynb
-.idea*
+.idea/*
 runs/
 fashion_MNIST_example/
 *.egg-info

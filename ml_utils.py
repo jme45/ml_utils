@@ -2,10 +2,12 @@ from datetime import datetime
 from pathlib import Path
 from timeit import default_timer as timer
 from typing import Optional, Tuple
+from contextlib import nullcontext
 
 import torch
 import torchmetrics
 from torch import nn
+from torch import Tensor
 from torch.optim.optimizer import Optimizer
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
@@ -37,7 +39,6 @@ class TensorBoardLogger:
         self.tensorboard_logging = tensorboard_logging
         self.experiment_name = experiment_name
 
-
         if tensorboard_logging:
             # Check that if we want logging, the parameters are set
             assert self.experiment_name is not None, "experiment_name must not be None"
@@ -55,7 +56,7 @@ class TensorBoardLogger:
         results_train: dict[str, float],
         results_test: dict[str, float],
         epoch: int,
-    )->None:
+    ) -> None:
         """Log results from train and test to tensorboard, if want logging"""
 
         # only perform logging if we actually want tensorboard logging
@@ -66,8 +67,8 @@ class TensorBoardLogger:
                 ):
                     self.writer.add_scalar(f"{metric}/{train_test}", res[metric], epoch)
 
-    def close(self)->None:
-        '''Close the writer, if we wanted logging.'''
+    def close(self) -> None:
+        """Close the writer, if we wanted logging."""
         if self.tensorboard_logging:
             self.writer.close()
 
@@ -157,18 +158,58 @@ class ClassificationTrainer:
         self.lowest_loss_model_path = self.output_path / "lowest_loss_model.pt"
         self.final_model_path = self.output_path / "final_model.pt"
 
-    def _train_step(self, epoch: int) -> dict[str, float]:
+    def _assemble_ret_metrics(
+        self,
+        y_preds_all: list[Tensor],
+        y_true_all: list[Tensor],
+        total_loss: float,
+        n_samples: int,
+        start_time: float,
+        end_time: float,
+    ) -> dict[str, float]:
+        # Turn y_preds_all and y_true_all into single tensor.
+        y_preds_all = torch.cat(y_preds_all)
+        y_true_all = torch.cat(y_true_all)
+
+        # Make a dictionary with metrics for returning.
+        ret_metrics = {}
+        # Save average loss per sample.
+        ret_metrics["loss"] = total_loss / n_samples
+        for metric, fn in self.metrics.items():
+            ret_metrics[metric] = fn(y_preds_all, y_true_all).item()
+
+        # Save training time.
+        ret_metrics["epoch_time"] = end_time - start_time
+        return ret_metrics
+
+    def _train_or_test_step(self, train_test: str, epoch: int):
         """
-        Trains model through one epoch.
-        :parameter: epoch: epoch which is being trained
+        One function, which either does test or train step.
+
+        Test and train steps are so similar, that it's better to have a single
+        function which can do both.
+        :param test_train: "test" or "train", depending on which step is being done
+        :param epoch: epoch which is being trained
         :return: dict of losses and performance metrics.
         """
+        assert train_test in [
+            "train",
+            "test",
+        ], "test_train must either be 'test' or 'train'"
+
+        # Get correct dataloader and set model.
+        if train_test == "train":
+            dataloader = self.train_dataloader
+            self.model.train()
+        else:
+            dataloader = self.test_dataloader
+            self.model.eval()
 
         # Make a progress bar for progress within the epoch.
         progress_bar_generator = tqdm(
-            enumerate(self.train_dataloader),
-            desc=f"Training epoch {epoch}",
-            total=len(self.train_dataloader),
+            enumerate(dataloader),
+            desc=f"{train_test.title()}ing epoch {epoch}",
+            total=len(dataloader),
             disable=self.disable_within_epoch_progress_bar,
         )
 
@@ -178,9 +219,6 @@ class ClassificationTrainer:
         # save y_preds across all batches.
         y_preds_all = []
         y_true_all = []
-
-        # set to training mode
-        self.model.train()
 
         # Save start time, so can compute how long computation on batch took.
         start_time = timer()
@@ -192,20 +230,24 @@ class ClassificationTrainer:
             # Send data to device.
             X, y = X.to(self.device), y.to(self.device)
 
-            # forward pass
-            y_logits = self.model(X)
+            # Inference mode only needed during testing.
+            with torch.inference_mode() if train_test == "test" else nullcontext():
+                # forward pass
+                y_logits = self.model(X)
 
-            # Compute loss.
-            loss = self.loss_fn(y_logits, y)
+                # Compute loss.
+                loss = self.loss_fn(y_logits, y)
 
-            # zero the gradients.
-            self.optimiser.zero_grad()
+            # Optimisation steps only needed during training.
+            if train_test == "train":
+                # zero the gradients.
+                self.optimiser.zero_grad()
 
-            # backprop
-            loss.backward()
+                # backprop
+                loss.backward()
 
-            # Step the optimiser.
-            self.optimiser.step()
+                # Step the optimiser.
+                self.optimiser.step()
 
             # Get the label predictions and append to list of all predictions.
             y_preds = torch.argmax(y_logits, dim=-1)
@@ -220,82 +262,9 @@ class ClassificationTrainer:
         # Save end time.
         end_time = timer()
 
-        # Turn y_preds_all and y_true_all into single tensor.
-        y_preds_all = torch.cat(y_preds_all)
-        y_true_all = torch.cat(y_true_all)
-
-        # Make a dictionary with metrics for returning.
-        ret_metrics = {}
-        # Save average loss per sample.
-        ret_metrics["loss"] = total_loss / n_samples
-        for metric, fn in self.metrics.items():
-            ret_metrics[metric] = fn(y_preds_all, y_true_all).item()
-
-        # Save training time.
-        ret_metrics["epoch_time"] = end_time - start_time
-
-        return ret_metrics
-
-    def _test_step(self, epoch):
-        # Make a progress bar for progress within the epoch.
-        progress_bar_generator = tqdm(
-            enumerate(self.test_dataloader),
-            desc=f"Testing epoch {epoch}",
-            total=len(self.test_dataloader),
-            disable=self.disable_within_epoch_progress_bar,
+        ret_metrics = self._assemble_ret_metrics(
+            y_preds_all, y_true_all, total_loss, n_samples, start_time, end_time
         )
-
-        # Save total number of elements across all batches.
-        n_samples = 0
-        total_loss = 0.0
-        # Save y_preds across all batches.
-        y_preds_all = []
-        y_true_all = []
-
-        start_time = timer()
-
-        # Put model in evaluation mode.
-        self.model.eval()
-
-        for batch, (X, y) in progress_bar_generator:
-            # Save true label
-            y_true_all.append(y.cpu())
-
-            # Send data to device.
-            X, y = X.to(self.device), y.to(self.device)
-
-            with torch.inference_mode():
-                # forward pass
-                y_logits = self.model(X)
-
-                # compute loss
-                loss = self.loss_fn(y_logits, y)
-
-            # Get the label predictions
-            y_preds = torch.argmax(y_logits, dim=-1)
-
-            y_preds_all.append(y_preds.cpu())
-
-            # cumulate number of samples
-            n_samples += X.shape[0]
-
-            # cumulate total loss
-            total_loss += loss.item()
-
-        end_time = timer()
-
-        # Turn y_preds_all and y_true_all into single tensor.
-        y_preds_all = torch.cat(y_preds_all)
-        y_true_all = torch.cat(y_true_all)
-
-        # Make a dictionary with metrics for returning.
-        ret_metrics = {}
-        ret_metrics["loss"] = total_loss / n_samples
-        for metric, fn in self.metrics.items():
-            ret_metrics[metric] = fn(y_preds_all, y_true_all).item()
-
-        # Save training time.
-        ret_metrics["epoch_time"] = end_time - start_time
 
         return ret_metrics
 
@@ -320,8 +289,8 @@ class ClassificationTrainer:
 
         # Iterate through epochs
         for epoch in epoch_generator:
-            results_train = self._train_step(epoch)
-            results_test = self._test_step(epoch)
+            results_train = self._train_or_test_step("train", epoch)
+            results_test = self._train_or_test_step("test", epoch)
 
             # add all results to dictionary.
             for train_test, res in zip(
