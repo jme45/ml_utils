@@ -25,28 +25,24 @@ class TensorBoardLogger:
     def __init__(
         self,
         tensorboard_logging: bool,
-        experiment_name: Optional[str] = None,
         root_dir: Optional[Path] = Path("runs/"),
         additional_metrics: Optional[Tuple[str]] = additional_metrics,
     ):
         """
         Create an instance of Tensorboard SummaryWriter if tensorboard_logging is True
 
-        :param experiment_name: str, to identify expt name
         :param root_dir: root directory for putting runs
         """
         self.additional_metrics = additional_metrics
         self.tensorboard_logging = tensorboard_logging
-        self.experiment_name = experiment_name
 
         if tensorboard_logging:
             # Check that if we want logging, the parameters are set
-            assert self.experiment_name is not None, "experiment_name must not be None"
             assert root_dir is not None, "root_dir must not be None"
             assert additional_metrics is not None, "additional_metrics must not be None"
 
-            timestamp = datetime.now().strftime("%Y-%m-%d")
-            log_dir = Path(root_dir) / experiment_name / timestamp
+            log_dir = Path(root_dir) / "tensorboard"
+            log_dir.mkdir(parents=True, exist_ok=True)
             self.writer = SummaryWriter(log_dir=str(log_dir))
         else:
             self.writer = None
@@ -147,7 +143,11 @@ class ClassificationTrainer:
 
         # If tensorboard logger not provided, initialise with no logger.
         if self.tensorboard_logger is None:
-            self.tensorboard_logger = TensorBoardLogger(False, None, None, None)
+            self.tensorboard_logger = TensorBoardLogger(
+                False,
+                None,
+                None,
+            )
 
         # Initialise lowest test loss and corresponding state dict. It's None initially.
         self.lowest_test_loss = None
@@ -155,8 +155,8 @@ class ClassificationTrainer:
 
         # Initialise output files.
         self.output_path.mkdir(parents=True, exist_ok=True)
-        self.lowest_loss_model_path = self.output_path / "lowest_loss_model.pt"
-        self.final_model_path = self.output_path / "final_model.pt"
+        self.lowest_loss_model_path = self.output_path / "lowest_loss_model.pth"
+        self.final_model_path = self.output_path / "final_model.pth"
 
     def _assemble_ret_metrics(
         self,
