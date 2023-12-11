@@ -33,6 +33,19 @@ def test_trainer(tmp_path):
     X_test = torch.randn(n_test_samples, n_input_features)
     y_test = torch.randint(0, n_classes, (n_test_samples,))
 
+    # Check that at least some of the inputs match, otherwise
+    # there is no chance that the outputs will match.
+    expected_X = np.array(
+        [
+            [-0.5655086, 0.16043702, -0.02535119],
+            [1.0739002, 2.2628458, -0.9175293],
+            [-0.22511572, 2.3466382, -1.1088485],
+            [1.6253527, 1.2333362, -0.18318552],
+        ]
+    )
+    assert np.allclose(expected_X, X.numpy()), "Random input data doesn't match."
+
+
     train_dl = DataLoader(TensorDataset(X, y), 2, False)
     test_dl = DataLoader(TensorDataset(X_test, y_test), 1, False)
 
@@ -63,16 +76,6 @@ def test_trainer(tmp_path):
     # Convert to pandas.
     res_df = pd.DataFrame(res)
 
-    # Check that at least some of the inputs match.
-    expected_X = np.array(
-        [
-            [-0.5655086, 0.16043702, -0.02535119],
-            [1.0739002, 2.2628458, -0.9175293],
-            [-0.22511572, 2.3466382, -1.1088485],
-            [1.6253527, 1.2333362, -0.18318552],
-        ]
-    )
-    assert np.allclose(expected_X, X.numpy()), "Random input data doesn't match."
 
     # Get expected values as numpy.
     expected = np.array(

@@ -1,4 +1,8 @@
 # ChangeLog
 
+## Unversioned
+- Combined _test_step and _train_step into one function, _test_or_train_step.
+- Added test for checking that random data for test remains constant.
+
 ## [0.1] - 2023-12-05
 - Code works for basic use. Tests implemented.
