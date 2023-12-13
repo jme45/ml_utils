@@ -45,7 +45,6 @@ def test_trainer(tmp_path):
     )
     assert np.allclose(expected_X, X.numpy()), "Random input data doesn't match."
 
-
     train_dl = DataLoader(TensorDataset(X, y), 2, False)
     test_dl = DataLoader(TensorDataset(X_test, y_test), 1, False)
 
@@ -75,7 +74,6 @@ def test_trainer(tmp_path):
 
     # Convert to pandas.
     res_df = pd.DataFrame(res)
-
 
     # Get expected values as numpy.
     expected = np.array(
