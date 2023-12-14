@@ -4,3 +4,4 @@ runs/
 fashion_MNIST_example/
 *.egg-info
 __pycache__
+data/

@@ -88,6 +88,7 @@ class ClassificationTrainer:
         disable_within_epoch_progress_bar: bool = True,
         disable_epoch_progress_bar: bool = False,
         additional_metrics: list[str] = additional_metrics,
+        print_progress_to_screen: bool = False,
     ) -> None:
         """
         Initialises Trainer class to train a pytorch Module.
@@ -108,9 +109,11 @@ class ClassificationTrainer:
         :param disable_within_epoch_progress_bar: disable progress bar within an epoch
         :param disable_epoch_progress_bar: disable progress bar marking progress across epochs
         :param additional_metrics: metrics to log in addition to loss. Instances of torchmetrics
+        :param print_progress_to_screen: whether to print loss and accuracy to screen.
         :return: None
         """
 
+        self.print_progress_to_screen = print_progress_to_screen
         self.tensorboard_logger = tensorboard_logger
         self.disable_epoch_progress_bar = disable_epoch_progress_bar
         self.disable_within_epoch_progress_bar = disable_within_epoch_progress_bar
@@ -157,6 +160,12 @@ class ClassificationTrainer:
         self.output_path.mkdir(parents=True, exist_ok=True)
         self.lowest_loss_model_path = self.output_path / "lowest_loss_model.pth"
         self.final_model_path = self.output_path / "final_model.pth"
+
+        # Check that compute accuracy if printing to screen, since this assumes Accuracy is present.
+        if self.print_progress_to_screen:
+            assert (
+                "Accuracy" in additional_metrics
+            ), "If printing to screen, 'Accuracy' must be part of additional_metrics."
 
     def _assemble_ret_metrics(
         self,
@@ -268,6 +277,22 @@ class ClassificationTrainer:
 
         return ret_metrics
 
+    def _print_progress_to_screen(
+        self,
+        results_train: dict[str, float],
+        results_test: [str, float],
+        epoch: int,
+    ):
+        """Print loss and accuracy to screen"""
+        if self.print_progress_to_screen:
+            items_to_print = []
+            for train_test, res in zip(
+                ["train", "test"], [results_train, results_test]
+            ):
+                for metric in ["loss", "Accuracy"]:
+                    items_to_print.append(f"{train_test} {metric}: {res[metric]}")
+            print(", ".join(items_to_print))
+
     def train(self) -> dict[str, list[float]]:
         """
         Train the model.
@@ -305,6 +330,7 @@ class ClassificationTrainer:
             ):
                 self.lowest_loss_state_dict = self.model.state_dict()
 
+            self._print_progress_to_screen(results_train, results_test, epoch)
             self.tensorboard_logger.log(results_train, results_test, epoch)
 
         # Save state dict of models we want to save.
