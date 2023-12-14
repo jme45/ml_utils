@@ -290,7 +290,7 @@ class ClassificationTrainer:
                 ["train", "test"], [results_train, results_test]
             ):
                 for metric in ["loss", "Accuracy"]:
-                    items_to_print.append(f"{train_test} {metric}: {res[metric]}")
+                    items_to_print.append(f"{train_test} {metric}: {res[metric]:0.3f}")
             print(", ".join(items_to_print))
 
     def train(self) -> dict[str, list[float]]:
@@ -311,6 +311,9 @@ class ClassificationTrainer:
             for metric in self.metrics.keys():
                 all_results[f"{train_test}_{metric}"] = []
             all_results[f"{train_test}_epoch_time"] = []
+
+        # Send the model to the device.
+        self.model = self.model.to(self.device)
 
         # Iterate through epochs
         for epoch in epoch_generator:
