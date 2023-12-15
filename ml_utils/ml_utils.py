@@ -1,7 +1,7 @@
 from datetime import datetime
 from pathlib import Path
 from timeit import default_timer as timer
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Any, Callable
 from contextlib import nullcontext
 
 import torch
@@ -69,6 +69,18 @@ class TensorBoardLogger:
             self.writer.close()
 
 
+def default_state_extractor_function(model: nn.Module) -> dict[str, Any]:
+    """
+    Function for obtaining state dict of a module.
+
+    Sometimes we may only want to get part of a module. This default function gets
+    the entire state dict.
+    :param model:
+    :return: state_dict of the module in the form of an OrderedDict
+    """
+    return model.state_dict()
+
+
 class ClassificationTrainer:
     def __init__(
         self,
@@ -89,6 +101,9 @@ class ClassificationTrainer:
         disable_epoch_progress_bar: bool = False,
         additional_metrics: list[str] = additional_metrics,
         print_progress_to_screen: bool = False,
+        state_dict_extractor: Callable[
+            [nn.Module], dict[str, Any]
+        ] = default_state_extractor_function,
     ) -> None:
         """
         Initialises Trainer class to train a pytorch Module.
@@ -110,9 +125,10 @@ class ClassificationTrainer:
         :param disable_epoch_progress_bar: disable progress bar marking progress across epochs
         :param additional_metrics: metrics to log in addition to loss. Instances of torchmetrics
         :param print_progress_to_screen: whether to print loss and accuracy to screen.
+        :param state_dict_extractor: Function to extract appropriate state dict from model.
         :return: None
         """
-
+        self.state_dict_extractor = state_dict_extractor
         self.print_progress_to_screen = print_progress_to_screen
         self.tensorboard_logger = tensorboard_logger
         self.disable_epoch_progress_bar = disable_epoch_progress_bar
@@ -331,7 +347,7 @@ class ClassificationTrainer:
             if self.lowest_test_loss is None or (
                 results_test["loss"] < self.lowest_test_loss
             ):
-                self.lowest_loss_state_dict = self.model.state_dict()
+                self.lowest_loss_state_dict = self.state_dict_extractor(self.model)
 
             self._print_progress_to_screen(results_train, results_test, epoch)
             self.tensorboard_logger.log(results_train, results_test, epoch)
@@ -340,7 +356,9 @@ class ClassificationTrainer:
         if self.save_lowest_test_loss_model:
             torch.save(obj=self.lowest_loss_state_dict, f=self.lowest_loss_model_path)
         if self.save_final_model:
-            torch.save(obj=self.model.state_dict(), f=self.final_model_path)
+            torch.save(
+                obj=self.state_dict_extractor(self.model), f=self.final_model_path
+            )
 
         # need to close the tensorboard writer.
         self.tensorboard_logger.close()

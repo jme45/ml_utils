@@ -6,6 +6,7 @@
 - Removed experiment_name from TensorboardLogger.
 - Changed model output file name extension from .pt to .pth.
 - Changed rootdir behaviour for tensorboard logging.
+- Implemented possibility of passing in function for extracting state_dict
 
 ## [0.1] - 2023-12-05
 - Code works for basic use. Tests implemented.
