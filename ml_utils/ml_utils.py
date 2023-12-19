@@ -349,6 +349,12 @@ class ClassificationTrainer:
             ):
                 self.lowest_loss_state_dict = self.state_dict_extractor(self.model)
 
+                # Save model as soon as it's computed, in case programme doesn't terminate.
+                if self.save_lowest_test_loss_model:
+                    torch.save(
+                        obj=self.lowest_loss_state_dict, f=self.lowest_loss_model_path
+                    )
+
             self._print_progress_to_screen(results_train, results_test, epoch)
             self.tensorboard_logger.log(results_train, results_test, epoch)
 
