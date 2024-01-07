@@ -104,6 +104,7 @@ class ClassificationTrainer:
         state_dict_extractor: Callable[
             [nn.Module], dict[str, Any]
         ] = default_state_extractor_function,
+        trainable_parts: str | list[str] = "all",
     ) -> None:
         """
         Initialises Trainer class to train a pytorch Module.
@@ -126,8 +127,10 @@ class ClassificationTrainer:
         :param additional_metrics: metrics to log in addition to loss. Instances of torchmetrics
         :param print_progress_to_screen: whether to print loss and accuracy to screen.
         :param state_dict_extractor: Function to extract appropriate state dict from model.
+        :param trainable_parts: which parts of model are trainable. Default: "all"
         :return: None
         """
+        self.trainable_parts = trainable_parts
         self.state_dict_extractor = state_dict_extractor
         self.print_progress_to_screen = print_progress_to_screen
         self.tensorboard_logger = tensorboard_logger
@@ -207,6 +210,31 @@ class ClassificationTrainer:
         ret_metrics["epoch_time"] = end_time - start_time
         return ret_metrics
 
+    def _set_model_to_test_or_eval(self, train_test):
+        """
+        Set the parts which are trainable to test or eval
+
+        Sometimes we don't want to train the entire model, in that
+        case not the entire model is set to train/eval, but only
+        the trainable sub-parts.
+        """
+        if train_test == "train":
+            if self.trainable_parts == "all":
+                self.model.train()
+            else:
+                for trainable_part in self.trainable_parts:
+                    getattr(self.model, trainable_part).train()
+        elif train_test == "test":
+            if self.trainable_parts == "all":
+                self.model.eval()
+            else:
+                for trainable_part in self.trainable_parts:
+                    getattr(self.model, trainable_part).eval()
+        else:
+            raise NotImplementedError(
+                f"train_test must be 'train' or 'test'. Got train_test={train_test}"
+            )
+
     def _train_or_test_step(self, train_test: str, epoch: int):
         """
         One function, which either does test or train step.
@@ -222,13 +250,12 @@ class ClassificationTrainer:
             "test",
         ], "test_train must either be 'test' or 'train'"
 
-        # Get correct dataloader and set model.
+        # Get correct dataloader.
         if train_test == "train":
             dataloader = self.train_dataloader
-            self.model.train()
         else:
             dataloader = self.test_dataloader
-            self.model.eval()
+        self._set_model_to_test_or_eval(train_test)
 
         # Make a progress bar for progress within the epoch.
         progress_bar_generator = tqdm(
