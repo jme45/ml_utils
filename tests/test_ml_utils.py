@@ -4,7 +4,7 @@ import torch
 from torch import nn
 from torch.utils.data import TensorDataset, DataLoader
 
-from ml_utils import ml_utils
+from ml_utils_jme45 import ml_utils
 
 
 def test_trainer(tmp_path):

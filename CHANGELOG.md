@@ -1,6 +1,8 @@
 # ChangeLog
 
-## Unversioned
+## [Unversioned]
+
+## [0.2.0] - 2024-01-12
 - Converted to a proper package.
 - Combined _test_step and _train_step into one function, _test_or_train_step.
 - Added test for checking that random data for test remains constant.

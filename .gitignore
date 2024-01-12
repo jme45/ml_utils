@@ -1,7 +1,9 @@
 *.ipynb
 .idea/*
 runs/
+runs_tmp/
 fashion_MNIST_example/
 *.egg-info
 __pycache__
 data/
+dist/
